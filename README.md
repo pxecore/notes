@@ -1,20 +1,26 @@
-System Architecture: pxecore-research-notes
-The system utilizes a hybrid architecture that combines zero-latency loading with live GitHub synchronization. The operational flow consists of five core phases:
+markdown
+# System Architecture: pxecore Research Notes
+A lightweight, serverless publishing engine that combines zero-latency client rendering with live GitHub synchronization.
+---
+### Architecture Overview
+[GitHub Repo: posts/] │ ├── (1. Single ETag Tree Query) ──> 304 Not Modified (0 API Quota Used) │ OR └── (2. Raw CDN Stream) ──────────> [Markdown Parser & DOMPurify] │ ┌────────┴────────┐ ▼ ▼ [Local Cache v6] [Interactive GraphView]
 
-1. Dual-Layer & Recursive Data Sourcing
-The application prevents loading states by instantly rendering a static fallback layer (data/posts.ts). Concurrently, a background process queries the GitHub API (pxecore/notes/posts) using a two-pass traversal mechanism that retrieves both flat .md files directly in the root folder and nested files within categorized subdirectories (e.g., posts/ai/, posts/cyber/).
+### Core Phases
+#### 1. Instant Paint & ETag Smart Sync
+- **Zero-Latency Loading:** Renders instantly from versioned local storage (`pxecore_cached_posts_v6`) or bundled fallbacks—eliminating layout shifts and loading spinners.
+- **Quota-Free Polling:** Background sync queries the repository tree via a single recursive call (`git/trees/main?recursive=1`) using HTTP `If-None-Match` (ETag). Unmodified repos return `304 Not Modified`, consuming **zero GitHub API rate limits**.
+#### 2. Rate-Limit Immune CDN Pipeline
+- Content is streamed concurrently via GitHub's raw edge CDN (`raw.githubusercontent.com`), completely bypassing the restrictive 60 req/hr unauthenticated REST API ceiling.
+#### 3. Automatic Taxonomy & Namespacing
+- **Folder-to-Category:** Supports flat (`posts/*.md`) and nested structures (`posts/<category>/*.md`). If frontmatter lacks a category, the engine dynamically derives it from the parent folder name.
+- **Collision-Proof Slugs:** Subdirectory files are automatically namespaced (`category--slug`) to prevent URL collisions.
+- **Commit Date Resolution:** Automatically inherits commit timestamps if explicit publication dates are omitted.
+#### 4. Defensive Parsing & Sanitization
+- Frontmatter metadata is parsed in-memory; Markdown compiles to semantic HTML.
+- Every node passes through strict `DOMPurify` sanitization and URI validation to guarantee immunity against stored XSS attacks.
+#### 5. Dynamic Knowledge Graph
+- Automatically indexes inline `#hashtags` and metadata tags to render a real-time, interactive node-link graph (`GraphView`) visualizing cross-disciplinary research connections.
+#### 6. Zero-Build Workflow
+- **Publishing:** Simply commit a `.md` file to the `posts/` folder on GitHub.
+- **Reflection:** The client engine auto-discovers, parses, and publishes the new note in real time—no static rebuilds, webhooks, or CI/CD pipelines required.
 
-2. Local Caching & Rate-Limit Protection
-To minimize API requests and prevent GitHub rate-limit exhaustion, data is stored in localStorage (pxecore_cached_posts_v5). The engine maintains a secondary persistent registry (pxecore_commit_dates_cache_v5) to cache commit modification dates per file path. Cache structures are versioned to automatically bust and refresh outdated data schemas when architecture updates occur.
-
-3. Parsing, Categorization, and Sanitization
-The system extracts metadata (title, date, category, description) from the Markdown frontmatter. If no explicit category is declared in the frontmatter, the engine dynamically derives the category from the parent subdirectory's name (e.g., ai/ $\rightarrow$ AI). Slugs are automatically prefixed with their folder name (folder--filename) to guarantee uniqueness across subdirectories. The body text is compiled into HTML via marked.js and strictly sanitized using DOMPurify (sanitizeHTML) to prevent XSS vulnerabilities before rendering.
-
-4. Data Indexing and Graph Mapping
-Inline hashtags (e.g., #kernel) are extracted programmatically. This indexing supports real-time search filtering across metadata and powers the GraphView component, which maps interconnected posts into an interactive node graph based on shared tags.
-
-5. Local Telemetry
-Read metrics are tracked via localStorage (pxecore_blog_views). The system increments view counts upon access, calculates the read-share percentage, and dynamically plots a sparkline trend graph based on this data.
-
-Workflow Summary
-Deploying content requires simply committing a new .md file to the designated GitHub repository—either directly inside posts/ or neatly organized inside any subdirectory like posts/<topic>/. The application automatically detects subfolders, derives categories, fetches, processes, and displays the new posts in real time without requiring a rebuild or manual deployment.
